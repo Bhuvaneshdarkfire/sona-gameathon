@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --royal-blue: #1e3a8a;
+  --sports-gold: #fbbf24;
+  --deep-navy: #020617;
+}
+
+body {
+  background-color: var(--deep-navy);
+  color: #f8fafc;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+  /* subtle professional texture */
+  background-image: radial-gradient(circle at top center, #1e3a8a33 0%, transparent 70%);
+}
+
+/* Premium Glass Card - Cleaner & Lighter */
+.glass-panel {
+  background: rgba(30, 41, 59, 0.7); /* Slightly darker for better text contrast */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Gold Gradient Text */
+.text-gold-gradient {
+  background: linear-gradient(to right, #fbbf24, #d97706);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Smooth Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #020617; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
