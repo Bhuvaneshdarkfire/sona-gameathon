@@ -22,3 +22,30 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files (SECRETS!)
+backend/.env
+backend/serviceAccountKey.json
+
+# Uploaded team models
+backend/uploads/
+
+# Large dataset (will copy manually to EC2)
+backend/base-docker/training_data/*.csv
+datasets/
+
+# Docker test output files
+sample-model/submission_out.csv
+sample-model/logs_out.txt
+sample-model/submission_output.csv
+sample-model/logs_output.txt
+sona model/submission_out.csv
+sona model/logs_out.txt
+
+# Old zips
+*.zip
+
+# Temp files
+tsc_errors.txt
+tsc_output.txt
+*.resolved
