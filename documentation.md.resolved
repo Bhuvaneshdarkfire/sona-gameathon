@@ -1,0 +1,892 @@
+# 🏏 Sona PowerPredict — Complete Project Documentation
+
+> **IPL PowerPlay Score Prediction Hackathon Platform**
+> Organized by Dept. of CSD, Sona College of Technology, Salem, Tamil Nadu
+
+---
+
+## Table of Contents
+
+1. [Project Overview](#project-overview)
+2. [Technology Stack](#technology-stack)
+3. [Architecture Diagram](#architecture-diagram)
+4. [System Flow](#system-flow)
+5. [Directory Structure](#directory-structure)
+6. [Frontend Details](#frontend-details)
+7. [Backend Details](#backend-details)
+8. [Database Schema](#database-schema)
+9. [API Reference](#api-reference)
+10. [Docker Evaluation Pipeline](#docker-evaluation-pipeline)
+11. [Authentication & Authorization](#authentication--authorization)
+12. [AWS EC2 (t3.small) Deployment](#aws-ec2-t3small-deployment)
+13. [Environment Variables](#environment-variables)
+14. [Running Locally](#running-locally)
+
+---
+
+## Project Overview
+
+**Sona PowerPredict** is a state-wide hackathon platform where participating teams build ML models to predict IPL PowerPlay scores. Teams submit their models as Docker containers, which are automatically evaluated against real match data. The platform ranks teams based on prediction accuracy (lowest cumulative error wins).
+
+### Key Features
+
+| Feature | Description |
+|---|---|
+| **Team Registration** | Teams register with captain details; admin approves before access |
+| **Model Submission** | Teams upload [.zip](file:///d:/React%20Projects/sona-gameathon/sample-model.zip) files containing a [Dockerfile](file:///d:/React%20Projects/sona-gameathon/backend/controllers/submissionController.js#169-188) + ML model code |
+| **Docker Evaluation** | Models run in sandboxed Docker containers with resource limits |
+| **Match Management** | Admin creates matches, uploads CSV data, and enters actual scores |
+| **Auto-Evaluation** | Cron job automatically evaluates completed matches every hour |
+| **Leaderboard** | Real-time ranking by cumulative prediction error (lower = better) |
+| **Email Credentials** | Admin sends login credentials to approved teams via email |
+| **Announcements** | Admin posts announcements visible on user dashboards |
+
+---
+
+## Technology Stack
+
+### Frontend
+| Technology | Purpose |
+|---|---|
+| React 19 | UI framework |
+| TypeScript | Type safety |
+| Vite 7 | Build tool & dev server |
+| TailwindCSS 3.4 | Utility-first CSS |
+| Firebase Client SDK | Auth & Firestore (direct reads) |
+| Framer Motion | Animations |
+| Lucide React | Icon library |
+| React Router 7 | Client-side routing |
+
+### Backend
+| Technology | Purpose |
+|---|---|
+| Node.js + Express 5 | REST API server |
+| Firebase Admin SDK 13 | Server-side Firestore & Auth |
+| Dockerode | Docker API client (build & run containers) |
+| Multer | File upload handling (.zip, .csv) |
+| node-cron | Scheduled evaluation jobs |
+| Nodemailer | Email credential delivery |
+| AdmZip | Zip extraction & validation |
+| csv-parser | CSV parsing for match data |
+
+### Infrastructure
+| Technology | Purpose |
+|---|---|
+| Firebase Firestore | Primary database (NoSQL) |
+| Firebase Authentication | User identity management |
+| Docker Engine | Sandboxed ML model execution |
+| AWS EC2 (t3.small) | Production hosting |
+
+---
+
+## Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "Client Browser"
+        FE["React Frontend<br/>(Vite + TailwindCSS)"]
+    end
+
+    subgraph "Firebase Cloud"
+        FA["Firebase Auth"]
+        FS["Cloud Firestore"]
+    end
+
+    subgraph "AWS EC2 (t3.small)"
+        BE["Express.js Backend<br/>(Port 5000)"]
+        DK["Docker Engine"]
+        CRON["Evaluation Cron Job<br/>(Hourly)"]
+
+        subgraph "Docker Containers"
+            C1["Team 1 Model"]
+            C2["Team 2 Model"]
+            C3["Team N Model"]
+        end
+    end
+
+    FE -->|"Auth (Login/Register)"| FA
+    FE -->|"Direct reads (Firestore SDK)"| FS
+    FE -->|"API calls (/api/*)"| BE
+    BE -->|"Admin SDK reads/writes"| FS
+    BE -->|"Verify ID tokens"| FA
+    BE -->|"Build & Run containers"| DK
+    DK --> C1
+    DK --> C2
+    DK --> C3
+    CRON -->|"Trigger evaluations"| DK
+    CRON -->|"Read matches, write predictions"| FS
+```
+
+---
+
+## System Flow
+
+### 1. Team Registration & Approval Flow
+
+```mermaid
+sequenceDiagram
+    participant T as Team
+    participant FE as Frontend
+    participant FA as Firebase Auth
+    participant FS as Firestore
+    participant A as Admin
+
+    T->>FE: Fill registration form
+    FE->>FA: createUserWithEmailAndPassword()
+    FA-->>FE: User created (UID)
+    FE->>FA: signOut() (block access until approval)
+    FE->>FS: addDoc("teams", {status: "Pending", uid})
+    Note over FS: Team stored with "Pending" status
+
+    A->>FE: View pending teams in Admin Dashboard
+    A->>FS: updateDoc({status: "Approved"})
+    A->>FE: Optionally send email credentials
+    FE->>BE: POST /api/send-credentials
+    BE-->>T: Email with login details
+
+    T->>FE: Login with email/password
+    FE->>FA: signInWithEmailAndPassword()
+    FE->>FS: Query team by UID → check role & status
+    FE-->>T: Redirect to User Dashboard
+```
+
+### 2. Model Submission Flow
+
+```mermaid
+sequenceDiagram
+    participant T as Team
+    participant FE as Frontend
+    participant BE as Backend
+    participant DK as Docker
+
+    T->>FE: Upload .zip file
+    FE->>BE: POST /api/submissions/upload (FormData + Auth Token)
+    BE->>BE: Validate zip, extract, find Dockerfile
+    BE->>FS: Create submission record (status: "building")
+    BE-->>FE: 202 Accepted (submission ID)
+
+    Note over BE,DK: Background build process
+    BE->>DK: docker.buildImage(context, tag)
+    DK-->>BE: Build result (success/fail + logs)
+    BE->>FS: Update submission (status: "ready" or "failed")
+
+    T->>FE: Check build status
+    FE->>BE: GET /api/submissions/status/:id
+    BE-->>FE: {buildStatus, buildLog}
+```
+
+### 3. Match Evaluation Flow
+
+```mermaid
+sequenceDiagram
+    participant A as Admin
+    participant BE as Backend
+    participant FS as Firestore
+    participant DK as Docker
+
+    A->>BE: POST /api/matches (create match)
+    BE->>FS: Store match {team1, team2, stadium, status: "upcoming"}
+
+    A->>BE: POST /api/matches/:id/csv (upload match CSV)
+    BE->>FS: Store parsed CSV data in match document
+
+    A->>BE: PUT /api/matches/:id (actualRunsInning1, actualRunsInning2)
+    BE->>FS: Update match, set status: "completed"
+    BE->>FS: Delete stale predictions
+
+    A->>BE: POST /api/matches/evaluate/:matchId
+    BE->>FS: Get all active submissions (buildStatus: "ready")
+
+    loop For each team submission
+        BE->>DK: Create & run container with match input
+        Note over DK: Container reads /data/input.json<br/>Outputs JSON: {predictedRunsInning1, predictedRunsInning2}
+        DK-->>BE: Prediction output (stdout JSON)
+        BE->>BE: calculateError(predicted vs actual)
+        BE->>FS: Store prediction record
+    end
+
+    BE->>FS: Update match evaluatedAt
+    BE->>FS: Recalculate leaderboard (sum totalError per team)
+```
+
+### 4. Automated Evaluation (Cron Job)
+
+```mermaid
+flowchart TD
+    A["⏰ Cron Job (Every Hour)"] --> B{"Find completed matches<br/>without evaluatedAt"}
+    B -->|None found| C["Skip — nothing to do"]
+    B -->|Found matches| D["Get active submissions<br/>(buildStatus: ready)"]
+    D --> E{"Any ready<br/>submissions?"}
+    E -->|No| F["Skip — no models"]
+    E -->|Yes| G["For each unevaluated match"]
+    G --> H["For each team submission"]
+    H --> I["Run Docker container"]
+    I --> J{"Success?"}
+    J -->|Yes| K["Calculate error<br/>(|predicted - actual|)"]
+    J -->|No| L["Assign penalty error<br/>(999 + 999 = 1998)"]
+    K --> M["Store prediction in Firestore"]
+    L --> M
+    M --> H
+    H --> N["Update match evaluatedAt"]
+    N --> G
+    G --> O["Recalculate global leaderboard"]
+```
+
+---
+
+## Directory Structure
+
+```
+sona-gameathon/
+├── src/                          # Frontend (React + TypeScript)
+│   ├── App.tsx                   # Root component, routing, auth context
+│   ├── App.css                   # Global styles
+│   ├── main.tsx                  # Entry point
+│   ├── firebase.ts               # Firebase client initialization
+│   ├── types.ts                  # TypeScript type definitions
+│   ├── components/
+│   │   ├── Home.tsx              # Landing page (hero, features, leaderboard)
+│   │   ├── Login.tsx             # Login form (email/password)
+│   │   ├── RegistrationForm.tsx  # Team registration form
+│   │   ├── UserDashboard.tsx     # Team dashboard (submissions, predictions)
+│   │   ├── AdminDashboard.tsx    # Admin panel (matches, teams, settings)
+│   │   ├── AdminSetup.tsx        # Initial admin account setup
+│   │   ├── Navbar.tsx            # Navigation bar
+│   │   ├── About.tsx             # About page
+│   │   ├── FAQ.tsx               # FAQ page
+│   │   ├── Resources.tsx         # Rules & resources page
+│   │   └── Modal.tsx             # Reusable modal component
+│   └── services/
+│       ├── api.ts                # Backend API client (fetch wrapper)
+│       ├── auth.ts               # Firebase Auth helpers
+│       └── firestore.ts          # Firestore CRUD operations
+│
+├── backend/                      # Backend (Node.js + Express)
+│   ├── server.js                 # Express app, route mounting, email endpoint
+│   ├── .env                      # Environment variables
+│   ├── serviceAccountKey.json    # Firebase Admin service account
+│   ├── package.json              # Backend dependencies
+│   ├── config/
+│   │   └── firebase-admin.js     # Firebase Admin SDK initialization
+│   ├── middleware/
+│   │   └── authMiddleware.js     # JWT verification & role checks
+│   ├── controllers/
+│   │   ├── matchController.js    # Match CRUD, CSV upload/parsing
+│   │   ├── submissionController.js # Zip upload, Docker build trigger
+│   │   ├── evaluationController.js # Evaluation orchestration
+│   │   └── leaderboardController.js # Leaderboard & health check
+│   ├── services/
+│   │   ├── dockerService.js      # Docker build/run with resource limits
+│   │   └── evaluationService.js  # Error calculation & leaderboard update
+│   ├── jobs/
+│   │   └── evaluationCron.js     # Hourly auto-evaluation cron job
+│   ├── routes/
+│   │   ├── submissions.js        # /api/submissions/*
+│   │   ├── matches.js            # /api/matches/*
+│   │   └── leaderboard.js        # /api/leaderboard/*
+│   ├── match-data/               # Stored CSV files
+│   └── uploads/                  # Temp zip uploads
+│
+├── sample-model/                 # Sample model for participants
+├── vite.config.js                # Vite config with API proxy
+├── tailwind.config.js            # Tailwind configuration
+├── package.json                  # Frontend dependencies
+└── index.html                    # SPA entry point
+```
+
+---
+
+## Frontend Details
+
+### Pages & Routing
+
+| Route | Component | Access | Description |
+|---|---|---|---|
+| `/` | `Home` | Public | Landing page with hero, features, live leaderboard |
+| `/about` | `About` | Public | About the hackathon |
+| `/faq` | `FAQ` | Public | Frequently asked questions |
+| `/resources` | `Resources` | Public | Rules, submission guide, resources |
+| `/login` | `Login` | Public | Email/password login |
+| `/register` | `RegistrationForm` | Public | Team registration form |
+| `/user-dashboard` | [UserDashboard](file:///d:/React%20Projects/sona-gameathon/src/services/firestore.ts#103-145) | User only | Dashboard: submissions, predictions, team info |
+| `/admin` | `AdminDashboard` | Admin only | Admin panel: matches, teams, evaluations |
+| `/admin-setup` | `AdminSetup` | Public | One-time admin account creation |
+
+### Auth Context
+
+The `AuthContext` (in [App.tsx](file:///d:/React%20Projects/sona-gameathon/src/App.tsx)) manages global authentication state:
+1. Listens to `onAuthStateChanged` from Firebase
+2. Fetches the team doc by UID to determine `role` ("user" or "admin")
+3. Provides `{ user, role, loading }` to all components
+4. [ProtectedRoute](file:///d:/React%20Projects/sona-gameathon/src/App.tsx#30-47) wrapper enforces login and role checks
+
+### Frontend → Backend Communication
+
+- **Direct Firestore reads**: Registration, dashboard data, leaderboard reads happen via the Firebase Client SDK directly
+- **API calls**: Submission uploads, match management, and evaluations go through the Express backend via `/api/*` endpoints
+- **Vite Proxy**: During development, `/api` requests are proxied to `http://localhost:5000`
+
+---
+
+## Backend Details
+
+### Server Setup ([server.js](file:///d:/React%20Projects/sona-gameathon/backend/server.js))
+
+- Runs on port **5000** (configurable via `PORT` env var)
+- CORS enabled for cross-origin frontend requests
+- JSON body parsing via `express.json()`
+- Starts the evaluation cron job on boot
+- Global error handler for Multer and unhandled errors
+
+### Middleware ([authMiddleware.js](file:///d:/React%20Projects/sona-gameathon/backend/middleware/authMiddleware.js))
+
+| Middleware | Used On | Logic |
+|---|---|---|
+| [verifyToken](file:///d:/React%20Projects/sona-gameathon/backend/middleware/authMiddleware.js#7-27) | Protected endpoints | Extracts Bearer token → `admin.auth().verifyIdToken()` → attaches `req.user` |
+| [verifyAdmin](file:///d:/React%20Projects/sona-gameathon/backend/middleware/authMiddleware.js#28-58) | Admin-only endpoints | verifyToken + checks team doc `role === 'admin'` |
+| [verifyTeamMember](file:///d:/React%20Projects/sona-gameathon/backend/middleware/authMiddleware.js#59-82) | Team endpoints | verifyToken + attaches full `req.teamDoc` |
+
+### Controllers
+
+| Controller | Responsibilities |
+|---|---|
+| `submissionController` | Zip upload, extraction, Dockerfile validation, Docker image build |
+| `matchController` | Match CRUD, CSV upload/parsing, team predictions retrieval |
+| `evaluationController` | Orchestrates running all team containers, scoring, leaderboard update |
+| `leaderboardController` | Returns ranked leaderboard, Docker health check |
+
+### Services
+
+| Service | Responsibilities |
+|---|---|
+| `dockerService` | Docker daemon connectivity, image builds, container runs with resource limits/timeouts |
+| `evaluationService` | Error calculation (`|predicted - actual|`), leaderboard aggregation |
+
+---
+
+## Database Schema
+
+All data is stored in **Cloud Firestore**.
+
+### Collection: [teams](file:///d:/React%20Projects/sona-gameathon/src/services/firestore.ts#18-20)
+
+```json
+{
+  "teamName": "Team Alpha",
+  "institute": "Sona College",
+  "captainName": "John Doe",
+  "captainEmail": "john@example.com",
+  "members": ["John Doe", "Jane Smith", "", "", "", ""],
+  "uid": "firebase-auth-uid",
+  "role": "user",           // "user" | "admin"
+  "status": "Approved",     // "Pending" | "Approved"
+  "score": 42.5,
+  "cumulativeError": 42.5,
+  "matchesEvaluated": 3,
+  "editCount": 1,
+  "maxEdits": 2,
+  "createdAt": "Timestamp"
+}
+```
+
+### Collection: `matches`
+
+```json
+{
+  "matchNumber": 1,
+  "team1": "CSK",
+  "team2": "MI",
+  "stadium": "MA Chidambaram Stadium",
+  "tossWinner": "CSK",
+  "tossDecision": "bat",
+  "actualRunsInning1": 185,
+  "actualRunsInning2": 172,
+  "status": "completed",    // "upcoming" | "completed"
+  "csvUploaded": true,
+  "matchData": {
+    "stadium": "...",
+    "tossWinner": "...",
+    "tossDecision": "...",
+    "innings1": { "battingTeam": "CSK", "bowlingTeam": "MI", "batsmen": [...], "bowlers": [...] },
+    "innings2": { "battingTeam": "MI", "bowlingTeam": "CSK", "batsmen": [...], "bowlers": [...] }
+  },
+  "evaluatedAt": "Timestamp",
+  "createdAt": "Timestamp"
+}
+```
+
+### Collection: `submissions`
+
+```json
+{
+  "teamId": "firestore-doc-id",
+  "teamUid": "firebase-auth-uid",
+  "teamName": "Team Alpha",
+  "dockerImageTag": "gameathon-teamalpha123:latest",
+  "buildStatus": "ready",   // "building" | "ready" | "failed"
+  "buildLog": "...",
+  "active": true,
+  "submittedAt": "Timestamp"
+}
+```
+
+### Collection: `predictions`
+
+```json
+{
+  "matchId": "match-doc-id",
+  "teamId": "team-doc-id",
+  "submissionId": "submission-doc-id",
+  "predictedRunsInning1": 178,
+  "predictedRunsInning2": 165,
+  "errorInning1": 7,
+  "errorInning2": 7,
+  "totalError": 14,
+  "executionTimeMs": 12500,
+  "status": "success",       // "success" | "error" | "timeout"
+  "containerLog": "...",
+  "error": null,
+  "evaluatedAt": "Timestamp"
+}
+```
+
+### Collection: [settings](file:///d:/React%20Projects/sona-gameathon/src/services/firestore.ts#20-21)
+
+```json
+// doc id: "payment_mode"
+{ "value": true }
+
+// doc id: "payment_amount"
+{ "value": 500 }
+```
+
+### Collection: [announcements](file:///d:/React%20Projects/sona-gameathon/src/services/firestore.ts#21-22)
+
+```json
+{
+  "message": "Registration deadline extended to March 5!",
+  "timestamp": "Timestamp"
+}
+```
+
+---
+
+## API Reference
+
+### Submissions
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/submissions/upload` | Team | Upload [.zip](file:///d:/React%20Projects/sona-gameathon/sample-model.zip) model, triggers Docker build |
+| `GET` | `/api/submissions/:teamId` | Team | Get submission history (last 10) |
+| `GET` | `/api/submissions/status/:submissionId` | Team | Check build status |
+
+### Matches
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/matches` | Admin | Create a new match |
+| `PUT` | `/api/matches/:id` | Admin | Update match (scores, status, toss) |
+| `GET` | `/api/matches` | Public | List all matches (optional `?status=` filter) |
+| `GET` | `/api/matches/:id` | Public | Get single match details |
+| `POST` | `/api/matches/:id/csv` | Admin | Upload ball-by-ball CSV data |
+| `GET` | `/api/matches/:id/data` | Public | Get parsed CSV match data |
+| `POST` | `/api/matches/evaluate/:matchId` | Admin | Trigger evaluation for all teams |
+| `GET` | `/api/matches/predictions/:matchId` | Public | Get all predictions for a match |
+
+### Team Predictions
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/team-predictions/:teamId` | Team | All predictions for a team across matches |
+
+### Leaderboard
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/leaderboard` | Public | Ranked leaderboard (ascending error) |
+| `GET` | `/api/leaderboard/health` | Public | System health check + Docker status |
+
+### Email
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/send-credentials` | None | Send login credentials email to team |
+
+---
+
+## Docker Evaluation Pipeline
+
+### How Team Models Work
+
+Teams submit a [.zip](file:///d:/React%20Projects/sona-gameathon/sample-model.zip) containing:
+1. A [Dockerfile](file:///d:/React%20Projects/sona-gameathon/backend/controllers/submissionController.js#169-188) (at root or one level deep)
+2. Their ML model code and dependencies
+
+The container must:
+- Read match input from `/data/input.json`
+- Output a JSON to **stdout**: `{"predictedRunsInning1": <number>, "predictedRunsInning2": <number>}`
+
+### Container Input (`/data/input.json`)
+
+```json
+{
+  "matchNumber": 1,
+  "team1": "CSK",
+  "team2": "MI",
+  "stadium": "MA Chidambaram Stadium",
+  "tossWinner": "CSK",
+  "tossDecision": "bat",
+  "matchData": {
+    "innings1": {
+      "battingTeam": "CSK",
+      "bowlingTeam": "MI",
+      "batsmen": ["Ruturaj Gaikwad", "Devon Conway", "..."],
+      "bowlers": ["Jasprit Bumrah", "..."]
+    },
+    "innings2": { "..." }
+  }
+}
+```
+
+### Resource Constraints
+
+| Constraint | Limit |
+|---|---|
+| RAM | 512 MB |
+| CPU | 1 core |
+| Max processes | 100 |
+| Network | **Disabled** (no internet access) |
+| Execution timeout | 60 seconds |
+| Build timeout | 10 minutes |
+| Max zip size | 100 MB |
+
+### Scoring Formula
+
+```
+errorInning1 = |predictedRunsInning1 - actualRunsInning1|
+errorInning2 = |predictedRunsInning2 - actualRunsInning2|
+totalError   = errorInning1 + errorInning2
+```
+
+- **Failed containers** receive a penalty: `totalError = 1998` (999 per inning)
+- **Leaderboard rank**: Sum of `totalError` across all evaluated matches (ascending — lowest wins)
+
+---
+
+## Authentication & Authorization
+
+### Flow
+
+1. **Registration**: Team fills form → Firebase Auth account created → signed out immediately → team doc created with `status: "Pending"`
+2. **Admin Approval**: Admin updates team `status` to `"Approved"` → user can now log in
+3. **Login**: Firebase `signInWithEmailAndPassword()` → frontend queries team doc by UID → determines role
+4. **API Auth**: Frontend sends `Authorization: Bearer <Firebase ID Token>` → backend verifies via `admin.auth().verifyIdToken()`
+
+### Roles
+
+| Role | Access |
+|---|---|
+| `user` | User Dashboard, model submissions, view predictions |
+| [admin](file:///d:/React%20Projects/sona-gameathon/src/services/firestore.ts#199-212) | Admin Dashboard, create/manage matches, trigger evaluations, approve teams |
+
+---
+
+## AWS EC2 (t3.small) Deployment
+
+### Instance Specifications
+
+| Spec | Value |
+|---|---|
+| **Instance Type** | t3.small |
+| **vCPUs** | 2 |
+| **RAM** | 2 GB |
+| **Network** | Up to 5 Gbps |
+| **Storage** | EBS (recommended: 30 GB gp3) |
+| **OS** | Ubuntu 22.04 LTS (recommended) |
+
+### Step 1: Launch EC2 Instance
+
+1. Go to **AWS Console → EC2 → Launch Instance**
+2. Configure:
+   - **Name**: `sona-powerpredict`
+   - **AMI**: Ubuntu Server 22.04 LTS (64-bit x86)
+   - **Instance type**: `t3.small`
+   - **Key pair**: Create or select an existing `.pem` key
+   - **Storage**: 30 GB gp3
+3. **Security Group** — Allow these inbound rules:
+
+| Type | Port | Source | Purpose |
+|---|---|---|---|
+| SSH | 22 | Your IP | SSH access |
+| HTTP | 80 | 0.0.0.0/0 | Web traffic |
+| HTTPS | 443 | 0.0.0.0/0 | Secure web traffic |
+| Custom TCP | 5000 | 0.0.0.0/0 | Backend API (direct) |
+| Custom TCP | 5173 | 0.0.0.0/0 | Vite dev server (optional) |
+
+### Step 2: Connect to Instance
+
+```bash
+# Set permissions on key file
+chmod 400 your-key.pem
+
+# SSH into instance
+ssh -i your-key.pem ubuntu@<YOUR_EC2_PUBLIC_IP>
+```
+
+**From Windows (PowerShell):**
+```powershell
+ssh -i .\your-key.pem ubuntu@<YOUR_EC2_PUBLIC_IP>
+```
+
+### Step 3: Install Dependencies
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install Docker
+sudo apt install -y docker.io
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo usermod -aG docker $USER
+# Log out and back in for group change to take effect
+
+# Install PM2 (process manager)
+sudo npm install -g pm2
+
+# Install Nginx (reverse proxy)
+sudo apt install -y nginx
+```
+
+### Step 4: Clone & Configure Project
+
+```bash
+# Clone the repository
+git clone <your-repo-url> ~/sona-gameathon
+cd ~/sona-gameathon
+
+# Install frontend dependencies
+npm install
+
+# Install backend dependencies
+cd backend
+npm install
+```
+
+### Step 5: Configure Environment Files
+
+**Backend [.env](file:///d:/React%20Projects/sona-gameathon/backend/.env)** (`~/sona-gameathon/backend/.env`):
+```env
+PORT=5000
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASS=your-app-password
+EVAL_CRON_SCHEDULE=0 * * * *
+```
+
+**Firebase Service Account**: Place [serviceAccountKey.json](file:///d:/React%20Projects/sona-gameathon/backend/serviceAccountKey.json) in `~/sona-gameathon/backend/`
+
+```bash
+# Transfer from local machine
+scp -i your-key.pem serviceAccountKey.json ubuntu@<IP>:~/sona-gameathon/backend/
+```
+
+### Step 6: Build Frontend
+
+```bash
+cd ~/sona-gameathon
+
+# Update API base URL for production (create .env in project root)
+echo "VITE_API_BASE=http://<YOUR_EC2_PUBLIC_IP>:5000/api" > .env
+
+# Build production bundle
+npm run build
+```
+
+### Step 7: Start Backend with PM2
+
+```bash
+cd ~/sona-gameathon/backend
+pm2 start server.js --name "gameathon-backend"
+pm2 save
+pm2 startup  # Follow instructions to enable auto-start on boot
+```
+
+### Step 8: Configure Nginx Reverse Proxy
+
+```bash
+sudo nano /etc/nginx/sites-available/sona-powerpredict
+```
+
+Add the following configuration:
+
+```nginx
+server {
+    listen 80;
+    server_name <YOUR_EC2_PUBLIC_IP>;  # Or your domain name
+
+    # Serve frontend build
+    root /home/ubuntu/sona-gameathon/dist;
+    index index.html;
+
+    # SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Proxy API requests to backend
+    location /api/ {
+        proxy_pass http://localhost:5000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_cache_bypass $http_upgrade;
+        client_max_body_size 100M;  # Match multer limit
+    }
+}
+```
+
+Enable the site:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/sona-powerpredict /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+### Step 9: Verify Deployment
+
+```bash
+# Check backend is running
+pm2 status
+curl http://localhost:5000/api/leaderboard/health
+
+# Check Docker is accessible
+docker info
+
+# Check Nginx
+sudo systemctl status nginx
+curl http://localhost/api/leaderboard/health
+```
+
+Access the app at: `http://<YOUR_EC2_PUBLIC_IP>`
+
+### Connectivity Summary
+
+```mermaid
+graph LR
+    U["Users<br/>(Browser)"] -->|"Port 80 (HTTP)"| NG["Nginx<br/>(Reverse Proxy)"]
+    NG -->|"Static files"| DIST["dist/<br/>(Built Frontend)"]
+    NG -->|"/api/* → Port 5000"| BE["Express.js<br/>Backend (PM2)"]
+    BE -->|"Docker Socket"| DK["Docker Engine"]
+    BE -->|"HTTPS"| FS["Firebase<br/>(Firestore + Auth)"]
+```
+
+### t3.small Resource Considerations
+
+> [!WARNING]
+> The t3.small has **2 GB RAM**. Docker containers are limited to 512 MB each. Running more than ~2 containers simultaneously may exhaust memory.
+
+| Component | Estimated RAM Usage |
+|---|---|
+| Node.js Backend | ~150 MB |
+| Nginx | ~20 MB |
+| Docker Engine | ~100 MB |
+| Each ML Container | Up to 512 MB |
+| **Available for containers** | **~1.2 GB** |
+
+**Recommendations:**
+- Run container evaluations **sequentially** (already implemented in code)
+- Set a swap file for safety: `sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`
+- Monitor with: `htop`, `docker stats`, `pm2 monit`
+- Consider upgrading to **t3.medium** (4 GB RAM) if >20 teams submit models
+
+### Common Maintenance Commands
+
+```bash
+# View backend logs
+pm2 logs gameathon-backend
+
+# Restart backend
+pm2 restart gameathon-backend
+
+# Rebuild frontend after code changes
+cd ~/sona-gameathon && npm run build
+
+# Check Docker containers
+docker ps -a
+docker images | grep gameathon
+
+# Clean up old Docker images
+docker image prune -a
+
+# Check disk usage
+df -h
+```
+
+---
+
+## Environment Variables
+
+### Backend ([backend/.env](file:///d:/React%20Projects/sona-gameathon/backend/.env))
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PORT` | No | `5000` | Express server port |
+| `EMAIL_USER` | Yes | — | Gmail address for sending credentials |
+| `EMAIL_PASS` | Yes | — | Gmail app password (not account password) |
+| `EVAL_CRON_SCHEDULE` | No | `0 * * * *` | Cron schedule for auto-evaluation |
+| `FIREBASE_SERVICE_ACCOUNT` | No | — | JSON string (alternative to [serviceAccountKey.json](file:///d:/React%20Projects/sona-gameathon/backend/serviceAccountKey.json)) |
+
+### Frontend ([.env](file:///d:/React%20Projects/sona-gameathon/backend/.env) in project root)
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `VITE_API_BASE` | No | `/api` | Backend API base URL |
+
+---
+
+## Running Locally
+
+### Prerequisites
+- Node.js 18+
+- Docker Desktop (running)
+- Firebase project with Firestore + Auth enabled
+
+### Start Frontend
+
+```bash
+cd sona-gameathon
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+### Start Backend
+
+```bash
+cd sona-gameathon/backend
+npm install
+node server.js
+# → http://localhost:5000
+```
+
+The Vite dev server automatically **proxies** `/api/*` requests to `http://localhost:5000` (configured in [vite.config.js](file:///d:/React%20Projects/sona-gameathon/vite.config.js)).
+
+### First-Time Setup
+
+1. Go to `http://localhost:5173/admin-setup` to create the admin account
+2. Log in at `/login` with admin credentials
+3. Create matches, approve teams, and trigger evaluations from the Admin Dashboard
+
+---
+
+*Documentation generated on February 26, 2026*

@@ -1,232 +1,139 @@
+// ─── Gameathon Backend Server ────────────────────────────────────
+// Express server with Docker-based ML model evaluation system.
+//
+// API Routes:
+//   POST   /api/submissions/upload       — Upload .zip model submission
+//   GET    /api/submissions/:teamId      — Team's submission history
+//   GET    /api/submissions/status/:id   — Check build status
+//   POST   /api/matches                  — Create match (admin)
+//   PUT    /api/matches/:id              — Update match scores (admin)
+//   GET    /api/matches                  — List all matches
+//   POST   /api/matches/evaluate/:matchId — Trigger evaluation (admin)
+//   GET    /api/matches/predictions/:matchId — Get predictions
+//   GET    /api/leaderboard              — Ranked leaderboard
+//   GET    /api/leaderboard/health       — System health check
+//   POST   /api/send-credentials         — Send email credentials
+
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const Razorpay = require('razorpay');
-const crypto = require('crypto');
-
-// Razorpay Instance
-const razorpay = new Razorpay({
-    key_id: 'YOUR_RAZORPAY_KEY_ID', // Replace with your actual Key ID
-    key_secret: 'YOUR_RAZORPAY_KEY_SECRET' // Replace with your actual Key Secret
-});
 
 const app = express();
+const PORT = process.env.PORT || 5000;
+
+// ─── Middleware ────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
 
-mongoose.connect(process.env.MONGO_URI).then(() => console.log('✅ DB Connected'));
+// ─── Mount API Routes ─────────────────────────────────────────
+const submissionRoutes = require('./routes/submissions');
+const matchRoutes = require('./routes/matches');
+const leaderboardRoutes = require('./routes/leaderboard');
 
+app.use('/api/submissions', submissionRoutes);
+app.use('/api/matches', matchRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+
+// Team predictions (standalone route)
+const { getTeamPredictions } = require('./controllers/matchController');
+app.get('/api/team-predictions/:teamId', getTeamPredictions);
+
+// ─── Start Evaluation Cron ────────────────────────────────────
+const { startEvaluationCron } = require('./jobs/evaluationCron');
+startEvaluationCron();
+
+// ─── Legacy: Email Credentials Endpoint ───────────────────────
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+  service: 'gmail',
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
 });
 
-// --- SCHEMAS ---
-const SettingSchema = new mongoose.Schema({ key: String, value: mongoose.Schema.Types.Mixed });
+app.post('/api/send-credentials', async (req, res) => {
+  const { to, teamName, email, password } = req.body;
+  if (!to || !email || !password) {
+    return res.status(400).json({ error: 'Missing required fields: to, email, password' });
+  }
 
-const TeamSchema = new mongoose.Schema({
-    teamName: String,
-    institute: String,
-    captainName: String,
-    captainEmail: { type: String, unique: true },
-    members: [String],
-    password: { type: String, default: null },
-    score: { type: Number, default: 0 },
-    role: { type: String, default: 'user' },
-    status: { type: String, default: 'Pending' }, 
-    editCount: { type: Number, default: 0 },
-    maxEdits: { type: Number, default: 2 }
+  try {
+    await transporter.sendMail({
+      from: `"Sona Gameathon" <${process.env.EMAIL_USER}>`,
+      to,
+      subject: '🏏 Sona Gameathon — Your Login Credentials',
+      html: `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 500px; margin: 0 auto; background: #0f172a; border-radius: 16px; overflow: hidden; border: 1px solid #1e293b;">
+          <div style="background: linear-gradient(135deg, #2563eb, #4f46e5); padding: 32px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 24px;">🏏 Sona Gameathon</h1>
+            <p style="color: #bfdbfe; margin: 8px 0 0; font-size: 14px;">Season 2026</p>
+          </div>
+          <div style="padding: 32px;">
+            <h2 style="color: #e2e8f0; margin: 0 0 8px;">Welcome, ${teamName || 'Team'}!</h2>
+            <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+              Your team has been <span style="color: #4ade80; font-weight: bold;">approved</span>. Here are your login credentials:
+            </p>
+            <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin: 20px 0; border: 1px solid #334155;">
+              <div style="margin-bottom: 12px;">
+                <span style="color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Email</span>
+                <div style="color: #f1f5f9; font-family: monospace; font-size: 16px; margin-top: 4px;">${email}</div>
+              </div>
+              <div>
+                <span style="color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Password</span>
+                <div style="color: #60a5fa; font-family: monospace; font-size: 16px; margin-top: 4px;">${password}</div>
+              </div>
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">
+              Login at: <a href="${process.env.APP_URL || 'http://localhost:5173'}/login" style="color: #60a5fa;">${process.env.APP_URL || 'http://localhost:5173'}/login</a>
+            </p>
+            <p style="color: #64748b; font-size: 12px; margin-top: 24px; border-top: 1px solid #1e293b; padding-top: 16px;">
+              Please change your password after first login. Good luck! 🎯
+            </p>
+          </div>
+        </div>
+      `
+    });
+    res.json({ success: true, message: 'Email sent!' });
+  } catch (e) {
+    console.error('Email error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-const AnnouncementSchema = new mongoose.Schema({
-    message: String,
-    timestamp: { type: Date, default: Date.now }
+// ─── Error Handling Middleware ─────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+
+  // Multer errors
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large. Max 5MB.' });
+  }
+  if (err.message === 'Only .zip files are allowed') {
+    return res.status(400).json({ error: err.message });
+  }
+
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-const Team = mongoose.model('Team', TeamSchema);
-const Setting = mongoose.model('Setting', SettingSchema);
-const Announcement = mongoose.model('Announcement', AnnouncementSchema);
-
-// --- ROUTES ---
-
-// 1. PUBLIC: Get Settings & Leaderboard
-app.get('/api/public/data', async (req, res) => {
-    const paymentMode = await Setting.findOne({ key: 'payment_mode' });
-    const leaderboard = await Team.find({ role: 'user', status: 'Approved' }).select('teamName institute score').sort({ score: -1 });
-    res.json({ paymentEnabled: paymentMode ? paymentMode.value : false, leaderboard });
+// ─── Start Server ─────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`
+╔═══════════════════════════════════════════════════════╗
+║  🏏 Gameathon Backend Server                         ║
+║  Port: ${PORT}                                          ║
+║                                                       ║
+║  API Routes:                                          ║
+║   POST   /api/submissions/upload                      ║
+║   GET    /api/submissions/:teamId                     ║
+║   POST   /api/matches                                 ║
+║   PUT    /api/matches/:id                             ║
+║   GET    /api/matches                                 ║
+║   POST   /api/matches/evaluate/:matchId               ║
+║   POST   /api/matches/:id/csv                         ║
+║   GET    /api/matches/:id/data                        ║
+║   GET    /api/matches/predictions/:matchId            ║
+║   GET    /api/team-predictions/:teamId                ║
+║   GET    /api/leaderboard                             ║
+║   GET    /api/leaderboard/health                      ║
+║   POST   /api/send-credentials                        ║
+╚═══════════════════════════════════════════════════════╝
+    `);
 });
-
-// 2. REGISTER
-app.post('/api/register', async (req, res) => {
-    try {
-        const { teamName, institute, captainName, captainEmail } = req.body;
-        if (await Team.findOne({ captainEmail })) return res.status(400).json({ error: "Email exists" });
-        await Team.create({ teamName, institute, captainName, captainEmail, members: [captainName, "", "", "", "", ""] });
-        res.json({ message: "Registration successful!" });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// 3. LOGIN
-app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    const user = await Team.findOne({ captainEmail: email });
-    if (!user || !user.password) return res.status(400).json({ error: "Invalid credentials or pending approval." });
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: "Invalid Password" });
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET);
-    res.json({ token, role: user.role });
-});
-
-// 4. USER: Dashboard Data (Includes Announcements & Payment Info)
-app.get('/api/user/dashboard', async (req, res) => {
-    const token = req.headers.authorization?.split(" ")[1];
-    if(!token) return res.status(401).json({error: "No Token"});
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const team = await Team.findById(decoded.id);
-        
-        // Dynamic Rank
-        const allTeams = await Team.find({ role: 'user', status: 'Approved' }).sort({ score: -1 });
-        const rank = allTeams.findIndex(t => t._id.toString() === decoded.id) + 1;
-
-        // Fetch Announcements & Settings
-        const announcements = await Announcement.find().sort({ timestamp: -1 });
-        const paymentMode = await Setting.findOne({ key: 'payment_mode' });
-        const paymentAmount = await Setting.findOne({ key: 'payment_amount' });
-
-        res.json({
-            team,
-            rank,
-            announcements,
-            payment: {
-                enabled: paymentMode?.value || false,
-                amount: paymentAmount?.value || 0
-            },
-            dreamTeam: ["Player A", "Player B", "Player C"] 
-        });
-    } catch(e) { res.status(401).json({error: "Invalid Token"}); }
-});
-
-// 5. USER: Update Members
-app.post('/api/user/update-members', async (req, res) => {
-    const { token, members } = req.body;
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const team = await Team.findById(decoded.id);
-        if (team.editCount >= team.maxEdits) return res.status(400).json({ error: "Edit limit reached." });
-        team.members = members;
-        team.editCount += 1;
-        await team.save();
-        res.json({ success: true, editsLeft: team.maxEdits - team.editCount });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// 6. USER: Change Password
-app.post('/api/user/change-password', async (req, res) => {
-    const { token, oldPassword, newPassword } = req.body;
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await Team.findById(decoded.id);
-        if (!(await bcrypt.compare(oldPassword, user.password))) return res.status(400).json({ error: "Wrong old password" });
-        user.password = await bcrypt.hash(newPassword, 10);
-        await user.save();
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: "Error" }); }
-});
-
-// 7. ADMIN: Get Data (Teams + Settings + Announcements)
-app.get('/api/admin/data', async (req, res) => {
-    const teams = await Team.find({ role: 'user' });
-    const settings = await Setting.find();
-    const announcements = await Announcement.find().sort({ timestamp: -1 });
-    res.json({ teams, settings, announcements });
-});
-
-// 8. ADMIN: Approve & Email
-app.post('/api/admin/approve', async (req, res) => {
-    const { teamId } = req.body;
-    try {
-        const team = await Team.findById(teamId);
-        const autoPass = Math.random().toString(36).slice(-8);
-        team.password = await bcrypt.hash(autoPass, 10);
-        team.status = "Approved";
-        await team.save();
-        
-        await transporter.sendMail({
-            from: process.env.EMAIL_USER,
-            to: team.captainEmail,
-            subject: 'Sona Gameathon Login',
-            text: `Approved! Login: http://localhost:5173/login \nEmail: ${team.captainEmail}\nPassword: ${autoPass}`
-        });
-        res.json({ message: "Approved" });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// 9. ADMIN: Post Announcement
-app.post('/api/admin/announce', async (req, res) => {
-    const { message } = req.body;
-    await Announcement.create({ message });
-    res.json({ success: true });
-});
-
-// 10. ADMIN: Settings & Actions
-app.post('/api/admin/settings', async (req, res) => {
-    const { key, value } = req.body;
-    await Setting.findOneAndUpdate({ key }, { value }, { upsert: true });
-    res.json({ success: true });
-});
-// ... existing routes ...
-
-// 11. PAYMENT: Create Order
-app.post('/api/payment/order', async (req, res) => {
-    const { amount } = req.body;
-    try {
-        const options = {
-            amount: amount * 100, // Razorpay takes amount in paise (multiply by 100)
-            currency: "INR",
-            receipt: "receipt_" + Math.random().toString(36).substring(7),
-        };
-        const order = await razorpay.orders.create(options);
-        res.json(order);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// 12. PAYMENT: Verify & Notify Admin
-app.post('/api/payment/verify', async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, teamId } = req.body;
-
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSignature = crypto
-        .createHmac('sha256', 'YOUR_RAZORPAY_KEY_SECRET') // USE YOUR SECRET HERE
-        .update(body.toString())
-        .digest('hex');
-
-    if (expectedSignature === razorpay_signature) {
-        // Payment Success!
-        const team = await Team.findById(teamId);
-        team.status = "Paid"; // Update Status
-        await team.save();
-
-        // Optional: Notify Admin via Email that someone paid
-        // await transporter.sendMail({ to: 'admin_email@sona.in', subject: 'New Payment Recieved', text: `Team ${team.teamName} has paid!` });
-
-        res.json({ success: true, message: "Payment Verified" });
-    } else {
-        res.status(400).json({ success: false, error: "Invalid Signature" });
-    }
-});
-
-app.post('/api/admin/action', async (req, res) => {
-    const { action, teamId, value } = req.body;
-    if (action === 'kick') await Team.findByIdAndDelete(teamId);
-    if (action === 'score') await Team.findByIdAndUpdate(teamId, { score: value });
-    res.json({ success: true });
-});
-
-app.listen(5000, () => console.log('🚀 Server Ready'));

@@ -1,0 +1,8 @@
+﻿src/App.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/App.tsx(26,65): error TS2503: Cannot find namespace 'JSX'.
+src/components/AdminDashboard.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/AdminDashboard.tsx(40,36): error TS2339: Property 'value' does not exist on type '{ key: string; }'.
+src/components/AdminDashboard.tsx(41,36): error TS2339: Property 'value' does not exist on type '{ key: string; }'.
+src/components/Dashboard.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/Dashboard.tsx(6,10): error TS6133: 'teamData' is declared but its value is never read.
+src/components/Dashboard.tsx(6,20): error TS6133: 'setTeamData' is declared but its value is never read.

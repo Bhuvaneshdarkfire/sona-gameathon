@@ -1,96 +1,156 @@
-// src/components/Home.tsx
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { 
-  Trophy, 
-  Target, 
-  HelpCircle, 
-  ChevronRight, 
-  BarChart3, 
-  Code2, 
-  UserPlus 
-} from 'lucide-react';
+import { getPublicData } from '../services/firestore';
+import { listMatches } from '../services/api';
+
+/* ─── Cricket Pitch SVG (geometric minimal) ─── */
+const CricketPitchSVG = () => (
+  <svg viewBox="0 0 300 280" className="w-full max-w-xs mx-auto opacity-80" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Outer oval */}
+    <ellipse cx="150" cy="140" rx="150" ry="140" stroke="#1E40AF" strokeWidth="2" strokeDasharray="6 4" opacity="0.3" />
+    {/* Inner circle */}
+    <circle cx="150" cy="140" r="95" stroke="#1E40AF" strokeWidth="1.5" opacity="0.25" />
+    {/* Pitch rectangle */}
+    <rect x="135" y="80" width="30" height="120" rx="2" stroke="#F59E0B" strokeWidth="2" fill="#F59E0B" fillOpacity="0.08" />
+    {/* Crease lines */}
+    <line x1="120" y1="95" x2="180" y2="95" stroke="#1E40AF" strokeWidth="1.5" opacity="0.4" />
+    <line x1="120" y1="185" x2="180" y2="185" stroke="#1E40AF" strokeWidth="1.5" opacity="0.4" />
+    {/* Stumps */}
+    <rect x="145" y="88" width="2" height="10" fill="#F59E0B" opacity="0.7" />
+    <rect x="149" y="88" width="2" height="10" fill="#F59E0B" opacity="0.7" />
+    <rect x="153" y="88" width="2" height="10" fill="#F59E0B" opacity="0.7" />
+    <rect x="145" y="182" width="2" height="10" fill="#F59E0B" opacity="0.7" />
+    <rect x="149" y="182" width="2" height="10" fill="#F59E0B" opacity="0.7" />
+    <rect x="153" y="182" width="2" height="10" fill="#F59E0B" opacity="0.7" />
+    {/* Fielding positions dots */}
+    <circle cx="80" cy="100" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="220" cy="100" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="60" cy="160" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="240" cy="160" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="100" cy="200" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="200" cy="200" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="280" cy="90" r="4" fill="#1E40AF" opacity="0.2" />
+    <circle cx="30" cy="200" r="4" fill="#1E40AF" opacity="0.2" />
+    {/* Score box */}
+    <rect x="90" y="251" width="120" height="28" rx="6" fill="#1E40AF" fillOpacity="0.06" stroke="#1E40AF" strokeWidth="1" opacity="0.4" />
+    <text x="150" y="270" textAnchor="middle" fill="#1E40AF" fontSize="11" fontFamily="Poppins" fontWeight="600" opacity="0.5">POWERPLAY</text>
+  </svg>
+);
+
+
+
+/* ─── Medal Component ─── */
+const RankBadge: React.FC<{ rank: number }> = ({ rank }) => {
+  if (rank === 1) return <span className="medal-badge medal-gold">1</span>;
+  if (rank === 2) return <span className="medal-badge medal-silver">2</span>;
+  if (rank === 3) return <span className="medal-badge medal-bronze">3</span>;
+  return <span className="text-gray-400 font-semibold text-sm">{rank}</span>;
+};
 
 const Home: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [recentMatches, setRecentMatches] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/public/data')
-      .then(res => res.json())
+    getPublicData()
       .then(data => data.leaderboard && setLeaderboard(data.leaderboard))
       .catch(err => console.error(err));
+    listMatches()
+      .then(data => setRecentMatches((data.matches || []).slice(-3).reverse()))
+      .catch(err => console.error('Matches fetch:', err));
   }, []);
 
   return (
-    <div className="min-h-screen pt-20">
-      
-      {/* 1. HERO SECTION */}
-      <section className="relative py-24 px-6 text-center overflow-hidden">
-        {/* Subtle Background Glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] -z-10"></div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-900/30 border border-blue-500/30 text-blue-300 text-sm font-medium mb-8">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-            </span>
-            Registration Open for Season 2026
-          </div>
-
-          <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight">
-            Predict the Game. <br />
-            <span className="text-gold-gradient">Master the Data.</span>
-          </h1>
-          <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Join the premier sports analytics hackathon. Build AI models to draft the ultimate fantasy cricket team and compete against live match outcomes.
-          </p>
-          
-          <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <Link to="/register" className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-600/20 transition-all hover:scale-105 flex items-center justify-center gap-2">
-              Register Team <ChevronRight size={20} />
-            </Link>
-            <a href="#rules" className="px-8 py-4 glass-panel-light hover:bg-white/10 text-white rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2">
-              View Rules
-            </a>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* 2. LIVE LEADERBOARD (ID for Scroll Link) */}
-      <section id="leaderboard" className="max-w-6xl mx-auto px-6 mb-24">
-        <div className="glass-panel rounded-2xl p-1 border border-white/10">
-          <div className="bg-[#0b1121] rounded-[14px] overflow-hidden">
-            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-              <div className="flex items-center gap-3">
-                <Trophy className="text-yellow-500" size={24} />
-                <h2 className="text-xl font-bold text-white">Live Tournament Standings</h2>
-              </div>
-              <div className="text-xs font-mono text-green-400 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> LIVE FEED
+    <div>
+      {/* ═══ HERO SECTION ═══ */}
+      <section className="bg-gradient-to-br from-cream via-white to-sky">
+        <div className="max-w-container mx-auto px-4 lg:px-8 py-16 lg:py-24">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left: Copy */}
+            <div>
+              <p className="text-royal font-heading font-medium text-sm tracking-wider uppercase mb-3">
+                Department of Computer Science · Sona College of Technology
+              </p>
+              <h1 className="font-heading text-4xl lg:text-5xl font-bold text-slate leading-tight mb-5">
+                National Level IPL PowerPlay Score Prediction <span className="text-royal">Hackathon</span>
+              </h1>
+              <p className="text-gray-600 text-lg mb-8 leading-relaxed max-w-lg">
+                Submit your Python prediction model. Compete against teams across the country. Climb the live evaluation leaderboard.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <Link to="/register" className="btn-primary">
+                  Register Now
+                </Link>
+                <Link to="/resources" className="btn-outline">
+                  View Rules
+                </Link>
               </div>
             </div>
-            
-            <table className="w-full text-left">
-              <thead className="bg-black/20 text-gray-500 text-xs uppercase font-semibold">
+            {/* Right: Illustration */}
+            <div className="hidden lg:flex justify-center">
+              <CricketPitchSVG />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ HOW IT WORKS ═══ */}
+      <section className="py-16 bg-gray-50/50">
+        <div className="max-w-container mx-auto px-4 lg:px-8">
+          <h2 className="section-heading text-center text-2xl mb-10">How It Works</h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { step: '01', title: 'Register', desc: 'Sign up your team (up to 6 members) through the registration form.' },
+              { step: '02', title: 'Build', desc: 'Write a MyModel class in Python to predict innings scores using cricket data.' },
+              { step: '03', title: 'Submit', desc: 'Upload your mymodelfile.py as a .zip file through your dashboard.' },
+              { step: '04', title: 'Compete', desc: 'Your model predicts runs for live matches. Lowest cumulative error wins.' },
+            ].map((item) => (
+              <div key={item.step} className="card p-6 text-center">
+                <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-sky flex items-center justify-center">
+                  <span className="text-royal font-heading font-bold text-sm">{item.step}</span>
+                </div>
+                <h3 className="font-heading font-semibold text-slate text-lg mb-2">{item.title}</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ LEADERBOARD ═══ */}
+      <section className="py-16 bg-white">
+        <div className="max-w-container mx-auto px-4 lg:px-8">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="section-heading text-2xl !mb-0">🏆 Live Evaluation Leaderboard</h2>
+          </div>
+          <div className="card-static overflow-hidden">
+            <table className="plain-table">
+              <thead>
                 <tr>
-                  <th className="p-4 pl-6">Rank</th>
-                  <th className="p-4">Team Name</th>
-                  <th className="p-4 hidden md:table-cell">Institute</th>
-                  <th className="p-4 text-right pr-6">Fantasy Points</th>
+                  <th className="w-16">Rank</th>
+                  <th>Team</th>
+                  <th className="hidden md:table-cell">College</th>
+                  <th>Matches</th>
+                  <th>Total Error</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 text-sm">
+              <tbody>
                 {leaderboard.length > 0 ? leaderboard.map((team, idx) => (
-                  <tr key={idx} className="hover:bg-blue-900/10 transition-colors">
-                    <td className="p-4 pl-6 font-mono text-gray-400">#{idx + 1}</td>
-                    <td className="p-4 font-bold text-white text-base">{team.teamName}</td>
-                    <td className="p-4 hidden md:table-cell text-gray-400">{team.institute}</td>
-                    <td className="p-4 text-right pr-6 font-mono font-bold text-yellow-500 text-base">{team.score}</td>
+                  <tr key={idx} className={idx < 3 ? 'bg-cream/40' : ''}>
+                    <td className="text-center">
+                      <RankBadge rank={idx + 1} />
+                    </td>
+                    <td className="font-semibold text-slate">{team.teamName}</td>
+                    <td className="hidden md:table-cell text-gray-500">{team.institute}</td>
+                    <td>{team.matchesEvaluated || 0}</td>
+                    <td className="font-semibold text-royal">
+                      {team.cumulativeError !== null && team.cumulativeError !== undefined
+                        ? team.cumulativeError.toFixed(1)
+                        : '—'}
+                    </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={4} className="p-12 text-center text-gray-500">Wait for the first match result...</td></tr>
+                  <tr><td colSpan={5} className="text-center text-gray-400 py-10">Waiting for first match results… 🏟️</td></tr>
                 )}
               </tbody>
             </table>
@@ -98,112 +158,85 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* 3. TIMELINE & PROCESS */}
-      <section className="bg-white/5 py-20 px-6 border-y border-white/5">
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl font-bold text-white text-center mb-16">How It Works</h2>
-          <div className="grid md:grid-cols-4 gap-8">
-            {[
-              { icon: UserPlus, step: "01", title: "Register", desc: "Sign up your team of 6 members." },
-              { icon: Code2, step: "02", title: "Build Model", desc: "Train your AI on historical cricket data." },
-              { icon: Target, step: "03", title: "Submit", desc: "Upload your Docker container for validation." },
-              { icon: BarChart3, step: "04", title: "Compete", desc: "Your AI picks teams daily. Highest points win." }
-            ].map((item, i) => (
-              <div key={i} className="relative group">
-                <div className="text-6xl font-black text-white/5 absolute -top-8 -left-4 z-0">{item.step}</div>
-                <div className="relative z-10 glass-panel p-6 rounded-xl hover:-translate-y-2 transition-transform duration-300">
-                  <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white mb-4 shadow-lg shadow-blue-600/30">
-                    <item.icon size={24} />
-                  </div>
-                  <h3 className="text-xl font-bold text-white mb-2">{item.title}</h3>
-                  <p className="text-gray-400 text-sm leading-relaxed">{item.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 4. FAQ & DETAILS */}
-      <section id="rules" className="max-w-4xl mx-auto py-24 px-6 grid md:grid-cols-2 gap-12">
-        <div>
-          <h2 className="text-3xl font-bold text-white mb-6">Evaluation Criteria</h2>
-          <div className="space-y-4">
-            <div className="glass-panel p-5 rounded-lg flex items-center justify-between">
-              <span className="font-bold text-gray-300">Fantasy Score Accuracy</span>
-              <span className="text-yellow-400 font-bold">70%</span>
-            </div>
-            <div className="glass-panel p-5 rounded-lg flex items-center justify-between">
-              <span className="font-bold text-gray-300">Code Efficiency</span>
-              <span className="text-blue-400 font-bold">20%</span>
-            </div>
-            <div className="glass-panel p-5 rounded-lg flex items-center justify-between">
-              <span className="font-bold text-gray-300">Documentation</span>
-              <span className="text-purple-400 font-bold">10%</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <h2 className="text-3xl font-bold text-white mb-6">Frequently Asked Questions</h2>
-          <div className="space-y-4">
-            <div className="glass-panel p-5 rounded-lg">
-              <h4 className="font-bold text-white mb-2 flex items-center gap-2"><HelpCircle size={16} className="text-blue-500"/> Can we change team members?</h4>
-              <p className="text-sm text-gray-400">Yes, the captain can edit team members up to 2 times from the dashboard.</p>
-            </div>
-            <div className="glass-panel p-5 rounded-lg">
-              <h4 className="font-bold text-white mb-2 flex items-center gap-2"><HelpCircle size={16} className="text-blue-500"/> Is there a registration fee?</h4>
-              <p className="text-sm text-gray-400">If the payment mode is active, you will see instructions on the dashboard. Otherwise, it is free.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-        {/* 5. ABOUT US SECTION */}
-        <section className="py-24 px-6 bg-[#0f172a]/50">
-          <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-16 items-center">
-            <div>
-              <div className="inline-block px-4 py-1 mb-4 rounded-full bg-blue-900/30 text-blue-400 text-xs font-bold uppercase tracking-wider">About The Organizers</div>
-              <h2 className="text-4xl font-bold text-white mb-6">Department of Computer Science & Design</h2>
-              <p className="text-gray-400 leading-relaxed mb-6">
-                The Sona Gameathon is the flagship event of the CSD Department at Sona College of Technology. 
-                Our mission is to bridge the gap between academic theory and real-world sports analytics.
-              </p>
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 mt-1">✓</div>
-                  <div><h4 className="text-white font-bold">Industry Standard Data</h4><p className="text-sm text-gray-500">Access to real IPL and International cricket datasets.</p></div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 mt-1">✓</div>
-                  <div><h4 className="text-white font-bold">Expert Mentorship</h4><p className="text-sm text-gray-500">Guidance from data scientists and cricket analysts.</p></div>
-                </div>
-              </div>
-            </div>
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-2xl blur-2xl opacity-20"></div>
-              <div className="glass-panel p-8 rounded-2xl relative border border-white/10">
-                <h3 className="text-2xl font-bold text-white mb-4">Vision 2026</h3>
-                <p className="text-gray-400 italic">
-                  "To create a platform where code dictates the play, and algorithms predict the champions."
-                </p>
-                <div className="mt-6 flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-full"></div>
-                  <div>
-                    <div className="text-white font-bold">Dr. HOD Name</div>
-                    <div className="text-xs text-blue-400 uppercase">Head of Department</div>
-                  </div>
-                </div>
-              </div>
+      {/* ═══ RECENT MATCHES ═══ */}
+      {recentMatches.length > 0 && (
+        <section className="py-16 bg-gray-50/50">
+          <div className="max-w-container mx-auto px-4 lg:px-8">
+            <h2 className="section-heading text-2xl mb-8">⚡ Recent Matches</h2>
+            <div className="card-static overflow-hidden">
+              <table className="plain-table">
+                <thead>
+                  <tr>
+                    <th>Match</th>
+                    <th>Teams</th>
+                    <th className="hidden md:table-cell">Stadium</th>
+                    <th>Status</th>
+                    <th>Scores</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentMatches.map((match, i) => (
+                    <tr key={i}>
+                      <td className="text-gray-500">#{match.matchNumber}</td>
+                      <td className="font-medium">{match.team1} vs {match.team2}</td>
+                      <td className="hidden md:table-cell text-gray-500 text-sm">{match.stadium}</td>
+                      <td>
+                        <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${match.status === 'live' ? 'text-green-600' :
+                          match.status === 'completed' ? 'text-gray-500' : 'text-gray-400'
+                          }`}>
+                          {match.status === 'live' && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+                          {match.status === 'live' ? 'Live' : match.status}
+                        </span>
+                      </td>
+                      <td className="font-mono text-sm">
+                        {match.actualRunsInning1 !== null && match.actualRunsInning1 !== undefined
+                          ? `I1: ${match.actualRunsInning1} | I2: ${match.actualRunsInning2}`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
+      )}
 
-              {/* Footer */}
-              <footer className="border-t border-white/10 bg-[#020617] py-12 text-center">
-                <p className="text-gray-500 text-sm">© 2026 Sona Gameathon. Organized by Department of CSD.</p>
-              </footer>
-            </div>
-          );
-        };
+      {/* ═══ QUICK LINKS ═══ */}
+      <section className="py-16 bg-white">
+        <div className="max-w-container mx-auto px-4 lg:px-8">
+          <h2 className="section-heading text-2xl text-center mb-10">Quick Links</h2>
+          <div className="grid sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
+            <a href="https://www.kaggle.com/datasets" target="_blank" rel="noopener noreferrer" className="card p-5 text-center group">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-sky flex items-center justify-center text-xl">📊</div>
+              <span className="font-heading font-semibold text-slate text-sm group-hover:text-royal transition-colors">Training Data</span>
+            </a>
+            <a href="/sample-model.zip" download className="card p-5 text-center group">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-cream flex items-center justify-center text-xl">📦</div>
+              <span className="font-heading font-semibold text-slate text-sm group-hover:text-royal transition-colors">Sample Model</span>
+            </a>
+            <Link to="/resources" className="card p-5 text-center group">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-sky flex items-center justify-center text-xl">📋</div>
+              <span className="font-heading font-semibold text-slate text-sm group-hover:text-royal transition-colors">Full Rules</span>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ SPONSOR STRIP ═══ */}
+      <section className="py-10 bg-gray-50/50 border-t border-light-border">
+        <div className="max-w-container mx-auto px-4 lg:px-8 text-center">
+          <p className="text-gray-400 text-xs font-heading font-medium uppercase tracking-wider mb-6">Sponsored By</p>
+          <div className="flex justify-center items-center gap-10 flex-wrap opacity-40">
+            <div className="w-24 h-10 bg-gray-200 rounded-lg" />
+            <div className="w-20 h-10 bg-gray-200 rounded-lg" />
+            <div className="w-28 h-10 bg-gray-200 rounded-lg" />
+            <div className="w-24 h-10 bg-gray-200 rounded-lg" />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+};
 
 export default Home;

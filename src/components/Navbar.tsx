@@ -1,89 +1,144 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Trophy, LogOut, LayoutDashboard, UserPlus, LogIn, UserCircle } from 'lucide-react';
+import { useAuth } from '../App';
+import { logoutUser } from '../services/auth';
 
 const Navbar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const token = localStorage.getItem('token');
-  const role = localStorage.getItem('role');
+  const { user, role } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const handleLogout = () => {
-    localStorage.clear();
+  const handleLogout = async () => {
+    await logoutUser();
+    setMenuOpen(false);
     navigate('/');
   };
 
-  const NavItem = ({ to, label, icon: Icon, active }: any) => (
-    <Link 
-      to={to} 
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 font-medium ${
-        active 
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
-          : 'text-gray-400 hover:text-white hover:bg-white/5'
-      }`}
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+
+  const isActive = (path: string) => location.pathname === path;
+
+  const navLink = (to: string, label: string) => (
+    <Link
+      to={to}
+      className={`relative px-3 py-2 text-sm font-medium transition-colors duration-micro ease-micro ${isActive(to)
+          ? 'text-royal'
+          : 'text-gray-600 hover:text-royal'
+        }`}
     >
-      {Icon && <Icon size={18} />}
       {label}
+      {isActive(to) && (
+        <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-saffron rounded-full" />
+      )}
     </Link>
   );
 
   return (
-    <nav className="fixed top-0 w-full z-50 bg-[#020617]/90 backdrop-blur-md border-b border-white/5 shadow-2xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
-          
-          {/* UPGRADED LOGO */}
+    <>
+      {/* Sticky Navigation */}
+      <nav className="sticky top-0 z-50 bg-white border-b border-light-border shadow-sm">
+        <div className="max-w-container mx-auto px-4 lg:px-8 flex items-center justify-between h-16">
+          {/* Logo */}
           <Link to="/" className="flex items-center gap-3 group">
-            <div className="relative">
-              <div className="absolute inset-0 bg-blue-600 blur-lg opacity-40 group-hover:opacity-60 transition-opacity"></div>
-              <div className="relative w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-lg flex items-center justify-center text-white font-black italic text-xl shadow-inner border border-white/10 transform skew-x-[-10deg]">
-                S
-              </div>
+            <div className="w-9 h-9 bg-royal rounded-lg flex items-center justify-center">
+              <span className="text-white text-lg">🏏</span>
             </div>
             <div className="flex flex-col">
-              <h1 className="text-2xl font-black italic tracking-tighter text-white group-hover:text-blue-400 transition-colors uppercase">
-                SONA <span className="text-blue-500">GAMEATHON</span>
-              </h1>
+              <span className="font-heading font-bold text-slate text-sm tracking-wide leading-tight">SONA POWER PREDICT</span>
+              <span className="text-[10px] text-gray-400 leading-tight hidden sm:block">IPL PowerPlay Score Prediction Hackathon</span>
             </div>
           </Link>
 
-          {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-4">
-            <NavItem to="/" label="Home" active={location.pathname === '/'} />
-            
-            <a href="/#leaderboard" className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-yellow-400 transition-colors font-medium">
-              <Trophy size={18} /> Leaderboard
-            </a>
-
-            <div className="h-6 w-px bg-white/10 mx-2"></div>
-
-            {!token ? (
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center gap-1">
+            {navLink('/', 'Home')}
+            {navLink('/about', 'About')}
+            {navLink('/resources', 'Rules')}
+            {navLink('/faq', 'FAQ')}
+            <span className="w-px h-5 bg-gray-200 mx-2" />
+            {!user ? (
               <>
-                <NavItem to="/register" label="Register" icon={UserPlus} active={location.pathname === '/register'} />
-                <Link to="/login" className="ml-2 flex items-center gap-2 px-6 py-2.5 bg-white text-blue-900 font-bold rounded-full hover:bg-blue-50 transition-all shadow-lg hover:shadow-white/10">
-                  <LogIn size={18} /> Login
+                <Link to="/login" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-royal transition-colors duration-micro">
+                  Login
+                </Link>
+                <Link to="/register" className="btn-primary text-sm !py-2 !px-5">
+                  Register Now
                 </Link>
               </>
             ) : (
               <>
-                <NavItem 
-                  to={role === 'admin' ? '/admin' : '/user-dashboard'} 
-                  label="Dashboard" 
-                  icon={LayoutDashboard} 
-                  active={location.pathname.includes('dashboard') || location.pathname.includes('admin')} 
-                />
-                <button 
+                {navLink(role === 'admin' ? '/admin' : '/user-dashboard', 'Dashboard')}
+                <button
                   onClick={handleLogout}
-                  className="ml-2 flex items-center gap-2 px-5 py-2.5 border border-red-500/30 text-red-400 font-medium rounded-full hover:bg-red-500 hover:text-white transition-all"
+                  className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors duration-micro"
                 >
-                  <LogOut size={18} /> Logout
+                  Logout
                 </button>
               </>
             )}
           </div>
+
+          {/* Mobile Hamburger */}
+          <div ref={menuRef} className="md:hidden relative">
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className={`flex flex-col items-center justify-center gap-[5px] w-10 h-10 rounded-lg hover:bg-gray-50 transition ${menuOpen ? 'hamburger-open' : ''}`}
+            >
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-12 w-56 bg-white border border-light-border rounded-card shadow-card-hover z-50 overflow-hidden">
+                {[
+                  { to: '/', label: 'Home' },
+                  { to: '/about', label: 'About' },
+                  { to: '/resources', label: 'Rules' },
+                  { to: '/faq', label: 'FAQ' },
+                ].map(({ to, label }) => (
+                  <Link
+                    key={to}
+                    to={to}
+                    className={`block px-4 py-3 text-sm border-b border-gray-50 transition-colors ${isActive(to) ? 'text-royal font-semibold bg-sky/30' : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                  >
+                    {label}
+                  </Link>
+                ))}
+                <div className="border-t border-gray-100">
+                  {!user ? (
+                    <>
+                      <Link to="/register" className="block px-4 py-3 text-sm font-semibold text-saffron-dark hover:bg-cream">Register Now</Link>
+                      <Link to="/login" className="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">Login</Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link to={role === 'admin' ? '/admin' : '/user-dashboard'} className="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">Dashboard</Link>
+                      <button onClick={handleLogout} className="block w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-red-50">Logout</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+      </nav>
+
+      {/* Royal Blue Banner */}
+      <div className="bg-royal text-white text-center py-2.5 text-xs font-medium tracking-wider uppercase">
+        🏏 National Level IPL PowerPlay Score Prediction Hackathon — Sona Gameathon 2026
       </div>
-    </nav>
+    </>
   );
 };
 
